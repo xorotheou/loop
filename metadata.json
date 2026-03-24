@@ -1,0 +1,5 @@
+{
+  "name": "LoopMaster AI",
+  "description": "Professional audio stem loop extractor and processor using MIR and RQA logic. Now with Android support via Capacitor.",
+  "requestFramePermissions": []
+}
