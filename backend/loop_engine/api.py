@@ -105,6 +105,10 @@ async def split_stems(file: UploadFile = File(...)):
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
 
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
+
 @app.post("/analyze", response_model=LoopDetectionResponse)
 async def analyze_loop(file: UploadFile = File(...)):
     """

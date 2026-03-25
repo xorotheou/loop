@@ -9,9 +9,10 @@ interface LoopGridProps {
   onSimilaritySearch?: (loop: LoopCandidate) => void;
   onAddToSequencer?: (loop: LoopCandidate) => void;
   onStore?: (loop: LoopCandidate) => void;
+  onEdit?: (loop: LoopCandidate) => void;
 }
 
-export const LoopGrid: React.FC<LoopGridProps> = ({ loops, globalPitch = 0, globalBpm = 120, onSimilaritySearch, onAddToSequencer, onStore }) => {
+export const LoopGrid: React.FC<LoopGridProps> = ({ loops, globalPitch = 0, globalBpm = 120, onSimilaritySearch, onAddToSequencer, onStore, onEdit }) => {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
       {(() => {
@@ -31,6 +32,7 @@ export const LoopGrid: React.FC<LoopGridProps> = ({ loops, globalPitch = 0, glob
               onSimilaritySearch={onSimilaritySearch}
               onAddToSequencer={onAddToSequencer}
               onStore={onStore}
+              onEdit={onEdit}
             />
           );
         }).filter(Boolean);

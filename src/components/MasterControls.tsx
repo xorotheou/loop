@@ -112,25 +112,35 @@ export const MasterControls: React.FC = () => {
               </button>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              {presets.map(p => (
-                <div key={p.id} className="flex items-center justify-between bg-slate-50 p-2 rounded-xl border border-slate-100 group/preset">
-                  <button 
-                    onClick={() => applyPreset(p)}
-                    className="text-[10px] font-bold text-slate-500 hover:text-amber-600 transition-all truncate flex-1 text-left"
-                  >
-                    {p.name}
-                  </button>
-                  <button 
-                    onClick={async () => {
-                      await presetService.deletePreset(p.id);
-                      loadPresets();
-                    }}
-                    className="text-slate-300 hover:text-red-500 opacity-0 group-hover/preset:opacity-100 transition-all"
-                  >
-                    <Trash2 size={12} />
-                  </button>
-                </div>
-              ))}
+              {(() => {
+                const seenIds = new Set();
+                return presets.map(p => {
+                  if (seenIds.has(p.id)) {
+                    console.warn(`Duplicate key detected in presets: ${p.id}`);
+                    return null;
+                  }
+                  seenIds.add(p.id);
+                  return (
+                    <div key={p.id} className="flex items-center justify-between bg-slate-50 p-2 rounded-xl border border-slate-100 group/preset">
+                      <button 
+                        onClick={() => applyPreset(p)}
+                        className="text-[10px] font-bold text-slate-500 hover:text-amber-600 transition-all truncate flex-1 text-left"
+                      >
+                        {p.name}
+                      </button>
+                      <button 
+                        onClick={async () => {
+                          await presetService.deletePreset(p.id);
+                          loadPresets();
+                        }}
+                        className="text-slate-300 hover:text-red-500 opacity-0 group-hover/preset:opacity-100 transition-all"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  );
+                }).filter(Boolean);
+              })()}
             </div>
           </motion.div>
         )}

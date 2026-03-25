@@ -43,8 +43,8 @@ async function startServer() {
   // 0. Start Python DSP Engine
   console.log("Starting Python DSP Engine...");
   try {
-    // Attempt to install requirements if needed (optional, depends on environment)
-    // execSync("pip install -r backend/requirements.txt", { stdio: 'inherit' });
+    // Attempt to install requirements if needed
+    execSync("python3 -m pip install -r backend/requirements.txt", { stdio: 'inherit' });
     
     const pythonProcess = spawn("python3", ["-m", "backend.loop_engine.api"], {
       stdio: "inherit",

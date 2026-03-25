@@ -14,7 +14,10 @@ import { WaveformView } from './components/WaveformView';
 import { exportLoopsAsZip } from './lib/exportUtils';
 import { aiService } from './services/aiService';
 import { jamAiService } from './services/jamAiService';
+import { chordAiService } from './services/chordAiService';
+import { voiceControlService } from './services/voiceControlService';
 import { cn, generateId } from './lib/utils';
+import { ChordSuggestion } from './types';
 import { Capacitor } from '@capacitor/core';
 import { App as CapApp } from '@capacitor/app';
 import { StatusBar, Style } from '@capacitor/status-bar';
@@ -22,6 +25,7 @@ import { SplashScreen } from '@capacitor/splash-screen';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
+import { LoopEditor } from './components/LoopEditor';
 import { io, Socket } from 'socket.io-client';
 
 import JSZip from 'jszip';
@@ -51,6 +55,7 @@ export default function App() {
   // Global Processing States
   const [globalPitch, setGlobalPitch] = useState(0);
   const [globalBpm, setGlobalBpm] = useState(120);
+  const [projectKey, setProjectKey] = useState('C Major');
   const [isNative, setIsNative] = useState(false);
 
   // WebSocket & AI Suggestion State
@@ -59,6 +64,14 @@ export default function App() {
   const [isShared, setIsShared] = useState(false);
   const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
   const [isGettingSuggestion, setIsGettingSuggestion] = useState(false);
+  
+  // New Features State
+  const [isVoiceControlActive, setIsVoiceControlActive] = useState(false);
+  const [voiceStatus, setVoiceStatus] = useState<string | null>(null);
+  const [chordSuggestions, setChordSuggestions] = useState<ChordSuggestion[]>([]);
+  const [isGettingChords, setIsGettingChords] = useState(false);
+  const [activeSamplerLoop, setActiveSamplerLoop] = useState<LoopCandidate | null>(null);
+  const [editingLoop, setEditingLoop] = useState<LoopCandidate | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -100,6 +113,33 @@ export default function App() {
       });
     }
   }, [socket, isShared, roomId, sequencerLoops, globalBpm, globalPitch]);
+
+  const toggleVoiceControl = async () => {
+    if (isVoiceControlActive) {
+      voiceControlService.stop();
+      setIsVoiceControlActive(false);
+      setVoiceStatus(null);
+    } else {
+      await voiceControlService.start(setVoiceStatus);
+      setIsVoiceControlActive(true);
+    }
+  };
+
+  const getChordSuggestions = async () => {
+    setIsGettingChords(true);
+    const chords = await chordAiService.suggestChords('C Major', globalBpm);
+    setChordSuggestions(chords);
+    setIsGettingChords(false);
+  };
+
+  const loadToSampler = async (loop: LoopCandidate) => {
+    await audioEngine.loadSampler(loop.buffer);
+    setActiveSamplerLoop(loop);
+  };
+
+  const playChord = (chord: ChordSuggestion) => {
+    audioEngine.triggerSamplerChord(chord.notes, chord.duration, undefined, chord.velocity);
+  };
 
   useEffect(() => {
     syncState();
@@ -262,12 +302,13 @@ export default function App() {
     setProgress(null);
   };
 
-  const runDiscovery = async (stem: Stem, timeRange?: { start: number; end: number }) => {
+  const runDiscovery = async (stem: Stem, timeRange?: { start: number; end: number }, overrideAiMode?: boolean) => {
     setIsProcessing(true);
     setProgress({ status: `Analyzing ${stem.name}...`, progress: 40 });
     
     try {
-      const discoveredLoops = await loopDiscovery.discoverLoops(stem.buffer, timeRange, stem.blob, aiMode);
+      const effectiveAiMode = overrideAiMode !== undefined ? overrideAiMode : aiMode;
+      const discoveredLoops = await loopDiscovery.discoverLoops(stem.buffer, timeRange, stem.blob, effectiveAiMode);
       const loopsWithStemId = discoveredLoops.map(l => ({ ...l, stemId: stem.id }));
       
       // AI Labeling for top 3 loops
@@ -663,67 +704,6 @@ export default function App() {
                   <StatCard title="Jam Slots" value={`${sequencerLoops.length}/4`} icon={<Music size={20} />} color="indigo" />
                 </div>
 
-                {activeView === 'jam' && (
-                  <div className="bg-gradient-to-br from-indigo-600 to-blue-700 rounded-[32px] p-8 text-white shadow-2xl shadow-blue-600/20 relative overflow-hidden">
-                    <div className="absolute top-0 right-0 p-8 opacity-10">
-                      <Sparkles size={120} />
-                    </div>
-                    <div className="relative z-10 space-y-6">
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-1">
-                          <h3 className="text-2xl font-serif italic">AI Jam Assistant</h3>
-                          <p className="text-blue-100 text-xs opacity-80">Get suggestions for your current jam session</p>
-                        </div>
-                        <button 
-                          onClick={getAiSuggestion}
-                          disabled={isGettingSuggestion}
-                          className={cn(
-                            "px-6 py-3 rounded-2xl bg-white text-blue-600 font-bold text-xs flex items-center gap-2 hover:bg-blue-50 transition-all shadow-xl",
-                            isGettingSuggestion && "animate-pulse"
-                          )}
-                        >
-                          <Sparkles size={18} />
-                          {isGettingSuggestion ? 'ANALYZING...' : 'SUGGEST LOOP FILL'}
-                        </button>
-                      </div>
-
-                      {aiSuggestion && (
-                        <motion.div 
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          className="bg-white/10 backdrop-blur-md rounded-2xl p-6 border border-white/10 space-y-4"
-                        >
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            {aiSuggestion.split('\n').map((line, i) => {
-                              if (line.startsWith('SUGGESTION:')) return (
-                                <div key={i} className="space-y-1">
-                                  <span className="text-[10px] font-bold uppercase tracking-widest text-blue-200">Suggestion</span>
-                                  <p className="text-sm font-bold">{line.replace('SUGGESTION:', '').trim()}</p>
-                                </div>
-                              );
-                              if (line.startsWith('REASON:')) return (
-                                <div key={i} className="space-y-1">
-                                  <span className="text-[10px] font-bold uppercase tracking-widest text-blue-200">Reasoning</span>
-                                  <p className="text-[11px] leading-relaxed opacity-90">{line.replace('REASON:', '').trim()}</p>
-                                </div>
-                              );
-                              if (line.startsWith('PROMPT:')) return (
-                                <div key={i} className="space-y-1">
-                                  <span className="text-[10px] font-bold uppercase tracking-widest text-blue-200">AI Prompt</span>
-                                  <div className="bg-black/20 p-2 rounded-lg text-[10px] font-mono italic">
-                                    {line.replace('PROMPT:', '').trim()}
-                                  </div>
-                                </div>
-                              );
-                              return null;
-                            })}
-                          </div>
-                        </motion.div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
                 <div className="flex items-end justify-between">
                   <div className="flex flex-col gap-2">
                     <h2 className="text-4xl font-serif font-light tracking-tight text-slate-800 italic">Stem Processing</h2>
@@ -776,27 +756,34 @@ export default function App() {
                       </div>
                     </div>
                     <div className="space-y-3">
-                      {stems.map(stem => (
-                        <button
-                          key={stem.id}
-                          onClick={() => setActiveStemId(stem.id)}
-                          className={cn(
-                            "w-full p-4 rounded-2xl border transition-all flex items-center justify-between group",
-                            activeStemId === stem.id 
-                              ? "bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-600/20" 
-                              : "bg-slate-100 border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-200/50"
-                          )}
-                        >
-                          <div className="flex items-center gap-3">
-                            <FileAudio size={18} className={activeStemId === stem.id ? "text-white" : "text-slate-400 group-hover:text-blue-500"} />
-                            <div className="flex flex-col items-start">
-                              <span className="text-xs font-bold truncate max-w-[120px]">{stem.name}</span>
-                              <span className="text-[9px] opacity-60 uppercase tracking-widest font-bold">{stem.bpm} BPM • {stem.key}</span>
-                            </div>
-                          </div>
-                          {activeStemId === stem.id && <Zap size={14} fill="white" />}
-                        </button>
-                      ))}
+                      {(() => {
+                        const seenIds = new Set();
+                        return stems.map(stem => {
+                          if (seenIds.has(stem.id)) return null;
+                          seenIds.add(stem.id);
+                          return (
+                            <button
+                              key={stem.id}
+                              onClick={() => setActiveStemId(stem.id)}
+                              className={cn(
+                                "w-full p-4 rounded-2xl border transition-all flex items-center justify-between group",
+                                activeStemId === stem.id 
+                                  ? "bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-600/20" 
+                                  : "bg-slate-100 border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-200/50"
+                              )}
+                            >
+                              <div className="flex items-center gap-3">
+                                <FileAudio size={18} className={activeStemId === stem.id ? "text-white" : "text-slate-400 group-hover:text-blue-500"} />
+                                <div className="flex flex-col items-start">
+                                  <span className="text-xs font-bold truncate max-w-[120px]">{stem.name}</span>
+                                  <span className="text-[9px] opacity-60 uppercase tracking-widest font-bold">{stem.bpm} BPM • {stem.key}</span>
+                                </div>
+                              </div>
+                              {activeStemId === stem.id && <Zap size={14} fill="white" />}
+                            </button>
+                          );
+                        }).filter(Boolean);
+                      })()}
                     </div>
                   </div>
 
@@ -830,11 +817,19 @@ export default function App() {
                                 MANUAL SLICE
                               </button>
                               <button 
+                                onClick={() => runDiscovery(stems.find(s => s.id === activeStemId)!, undefined, false)}
+                                className="px-6 py-3 rounded-2xl bg-white border border-slate-200 text-slate-700 font-bold text-sm hover:bg-slate-50 transition-all flex items-center gap-2"
+                                title="Run DSP analysis without AI adjudication"
+                              >
+                                <RefreshCw size={18} className={isProcessing ? "animate-spin" : ""} />
+                                DSP DETECTION
+                              </button>
+                              <button 
                                 onClick={() => runDiscovery(stems.find(s => s.id === activeStemId)!)}
                                 className="px-8 py-3 rounded-2xl bg-slate-900 text-white font-bold text-sm hover:bg-slate-800 transition-all flex items-center gap-2 shadow-xl"
                               >
-                                <RefreshCw size={18} className={isProcessing ? "animate-spin" : ""} />
-                                RUN AI DISCOVERY
+                                <Zap size={18} className={isProcessing ? "animate-spin" : ""} />
+                                {aiMode ? 'AI DISCOVERY' : 'RUN DISCOVERY'}
                               </button>
                             </div>
                           </div>
@@ -870,10 +865,11 @@ export default function App() {
                       
                       <LoopGrid 
                         loops={loops} 
-                        initialPitch={globalPitch} 
-                        initialBpm={globalBpm}
+                        globalPitch={globalPitch} 
+                        globalBpm={globalBpm}
                         onAddToSequencer={addToSequencer}
                         onStore={storeLoop}
+                        onEdit={setEditingLoop}
                       />
                     </div>
                   </div>
@@ -952,7 +948,67 @@ export default function App() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
+                className="space-y-10"
               >
+                <div className="bg-gradient-to-br from-indigo-600 to-blue-700 rounded-[32px] p-8 text-white shadow-2xl shadow-blue-600/20 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 p-8 opacity-10">
+                    <Sparkles size={120} />
+                  </div>
+                  <div className="relative z-10 space-y-6">
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-1">
+                        <h3 className="text-2xl font-serif italic">AI Jam Assistant</h3>
+                        <p className="text-blue-100 text-xs opacity-80">Get suggestions for your current jam session</p>
+                      </div>
+                      <button 
+                        onClick={getAiSuggestion}
+                        disabled={isGettingSuggestion}
+                        className={cn(
+                          "px-6 py-3 rounded-2xl bg-white text-blue-600 font-bold text-xs flex items-center gap-2 hover:bg-blue-50 transition-all shadow-xl",
+                          isGettingSuggestion && "animate-pulse"
+                        )}
+                      >
+                        <Sparkles size={18} />
+                        {isGettingSuggestion ? 'ANALYZING...' : 'SUGGEST LOOP FILL'}
+                      </button>
+                    </div>
+
+                    {aiSuggestion && (
+                      <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="bg-white/10 backdrop-blur-md rounded-2xl p-6 border border-white/10 space-y-4"
+                      >
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                          {aiSuggestion.split('\n').map((line, i) => {
+                            if (line.startsWith('SUGGESTION:')) return (
+                              <div key={i} className="space-y-1">
+                                <span className="text-[10px] font-bold uppercase tracking-widest text-blue-200">Suggestion</span>
+                                <p className="text-sm font-bold">{line.replace('SUGGESTION:', '').trim()}</p>
+                              </div>
+                            );
+                            if (line.startsWith('REASON:')) return (
+                              <div key={i} className="space-y-1">
+                                <span className="text-[10px] font-bold uppercase tracking-widest text-blue-200">Reasoning</span>
+                                <p className="text-[11px] leading-relaxed opacity-90">{line.replace('REASON:', '').trim()}</p>
+                              </div>
+                            );
+                            if (line.startsWith('PROMPT:')) return (
+                              <div key={i} className="space-y-1">
+                                <span className="text-[10px] font-bold uppercase tracking-widest text-blue-200">AI Prompt</span>
+                                <div className="bg-black/20 p-2 rounded-lg text-[10px] font-mono italic">
+                                  {line.replace('PROMPT:', '').trim()}
+                                </div>
+                              </div>
+                            );
+                            return null;
+                          })}
+                        </div>
+                      </motion.div>
+                    )}
+                  </div>
+                </div>
+
                 <JamView 
                   storedLoops={storedLoops} 
                   padSettings={padSettings}
@@ -961,6 +1017,18 @@ export default function App() {
                   setMasterVolume={setMasterVolume}
                   masterBpm={globalBpm}
                   setMasterBpm={setGlobalBpm}
+                  projectKey={projectKey}
+                  setProjectKey={setProjectKey}
+                  onEdit={setEditingLoop}
+                  isVoiceControlActive={isVoiceControlActive}
+                  voiceStatus={voiceStatus}
+                  toggleVoiceControl={toggleVoiceControl}
+                  chordSuggestions={chordSuggestions}
+                  isGettingChords={isGettingChords}
+                  getChordSuggestions={getChordSuggestions}
+                  playChord={playChord}
+                  activeSamplerLoop={activeSamplerLoop}
+                  loadToSampler={loadToSampler}
                 />
               </motion.div>
             )}
@@ -1037,6 +1105,20 @@ export default function App() {
             onStart={handleDiscoveryStart}
           />
         )}
+        {/* Loop Editor Overlay */}
+        <AnimatePresence>
+          {editingLoop && (
+            <LoopEditor 
+              loop={editingLoop}
+              projectKey={projectKey}
+              onClose={() => setEditingLoop(null)}
+              onSave={(updated) => {
+                // Update loop in library/sequencer
+                setEditingLoop(null);
+              }}
+            />
+          )}
+        </AnimatePresence>
       </AnimatePresence>
       </div>
     </div>

@@ -26,6 +26,7 @@ export interface LoopCandidate {
   aiReasoning?: string[];
   aiConfidence?: number;
   needsReview?: boolean;
+  grooveMap?: number[];
 }
 
 export interface ProcessingOptions {
@@ -112,4 +113,12 @@ export interface Stem {
 export interface ProcessingProgress {
   status: string;
   progress: number;
+}
+
+export interface ChordSuggestion {
+  id: string;
+  name: string;
+  notes: string[];
+  duration: string;
+  velocity: number;
 }

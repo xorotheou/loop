@@ -17,9 +17,10 @@ interface LoopCardProps {
   onSimilaritySearch?: (loop: LoopCandidate) => void;
   onAddToSequencer?: (loop: LoopCandidate) => void;
   onStore?: (loop: LoopCandidate) => void;
+  onEdit?: (loop: LoopCandidate) => void;
 }
 
-export const LoopCard: React.FC<LoopCardProps> = ({ loop, initialPitch = 0, initialBpm, onSimilaritySearch, onAddToSequencer, onStore }) => {
+export const LoopCard: React.FC<LoopCardProps> = ({ loop, initialPitch = 0, initialBpm, onSimilaritySearch, onAddToSequencer, onStore, onEdit }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [offset, setOffset] = useState(0);
   const [showTools, setShowTools] = useState(false);
@@ -356,7 +357,12 @@ export const LoopCard: React.FC<LoopCardProps> = ({ loop, initialPitch = 0, init
                 </button>
               )}
             </div>
-            <span className="text-sm font-bold text-slate-700 font-serif italic">{loopLabel}</span>
+            <button 
+              onClick={() => onEdit?.(loop)}
+              className="text-sm font-bold text-slate-700 font-serif italic hover:text-blue-600 transition-colors text-left"
+            >
+              {loopLabel}
+            </button>
           </div>
         </div>
         <div className="flex gap-2">
@@ -522,25 +528,35 @@ export const LoopCard: React.FC<LoopCardProps> = ({ loop, initialPitch = 0, init
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                {presets.map(p => (
-                  <div key={p.id} className="flex items-center justify-between bg-slate-100 p-2 rounded-xl border border-slate-200 group/preset">
-                    <button 
-                      onClick={() => applyPreset(p)}
-                      className="text-[10px] font-bold text-slate-500 hover:text-amber-600 transition-all truncate flex-1 text-left"
-                    >
-                      {p.name}
-                    </button>
-                    <button 
-                      onClick={async () => {
-                        await presetService.deletePreset(p.id);
-                        loadPresets();
-                      }}
-                      className="text-slate-300 hover:text-red-600 opacity-0 group-hover/preset:opacity-100 transition-all"
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-                ))}
+                {(() => {
+                  const seenIds = new Set();
+                  return presets.map(p => {
+                    if (seenIds.has(p.id)) {
+                      console.warn(`Duplicate key detected in presets: ${p.id}`);
+                      return null;
+                    }
+                    seenIds.add(p.id);
+                    return (
+                      <div key={p.id} className="flex items-center justify-between bg-slate-100 p-2 rounded-xl border border-slate-200 group/preset">
+                        <button 
+                          onClick={() => applyPreset(p)}
+                          className="text-[10px] font-bold text-slate-500 hover:text-amber-600 transition-all truncate flex-1 text-left"
+                        >
+                          {p.name}
+                        </button>
+                        <button 
+                          onClick={async () => {
+                            await presetService.deletePreset(p.id);
+                            loadPresets();
+                          }}
+                          className="text-slate-300 hover:text-red-600 opacity-0 group-hover/preset:opacity-100 transition-all"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    );
+                  }).filter(Boolean);
+                })()}
                 {presets.length === 0 && (
                   <div className="col-span-2 text-center py-4 text-[10px] text-slate-400 font-bold uppercase tracking-widest">
                     No presets saved yet

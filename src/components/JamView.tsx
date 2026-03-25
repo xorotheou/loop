@@ -2,10 +2,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import { LoopCandidate, ProcessingOptions } from '../types';
 import { audioEngine } from '../services/audioEngine';
 import { motion, AnimatePresence } from 'motion/react';
-import { Music, Play, Square, Layers, Sparkles, Volume2, Zap, Sliders, Activity, RefreshCw, Trash2, Settings2 } from 'lucide-react';
+import { Music, Play, Square, Layers, Sparkles, Volume2, Zap, Sliders, Activity, RefreshCw, Trash2, Settings2, Mic, MicOff, Piano, Download, Wand2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import * as Tone from 'tone';
 import { MasterControls } from './MasterControls';
+import { ChordSuggestion } from '../types';
 
 interface PadSetting {
   pitch: number;
@@ -21,6 +22,18 @@ interface JamViewProps {
   setMasterVolume: (val: number) => void;
   masterBpm: number;
   setMasterBpm: (val: number) => void;
+  projectKey: string;
+  setProjectKey: (val: string) => void;
+  onEdit?: (loop: LoopCandidate) => void;
+  isVoiceControlActive: boolean;
+  voiceStatus: string | null;
+  toggleVoiceControl: () => void;
+  chordSuggestions: ChordSuggestion[];
+  isGettingChords: boolean;
+  getChordSuggestions: () => void;
+  playChord: (chord: ChordSuggestion) => void;
+  activeSamplerLoop: LoopCandidate | null;
+  loadToSampler: (loop: LoopCandidate) => void;
 }
 
 export const JamView: React.FC<JamViewProps> = ({ 
@@ -30,11 +43,25 @@ export const JamView: React.FC<JamViewProps> = ({
   masterVolume, 
   setMasterVolume, 
   masterBpm, 
-  setMasterBpm 
+  setMasterBpm,
+  projectKey,
+  setProjectKey,
+  onEdit,
+  isVoiceControlActive,
+  voiceStatus,
+  toggleVoiceControl,
+  chordSuggestions,
+  isGettingChords,
+  getChordSuggestions,
+  playChord,
+  activeSamplerLoop,
+  loadToSampler
 }) => {
   const [activePads, setActivePads] = useState<Set<number>>(new Set());
   const [selectedPad, setSelectedPad] = useState<number | null>(null);
   const [isTransportPlaying, setIsTransportPlaying] = useState(false);
+  const [grooveMap, setGrooveMap] = useState<number[] | null>(null);
+  const [isProcessingEffect, setIsProcessingEffect] = useState(false);
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const analyzerRef = useRef<Tone.Analyser | null>(null);
@@ -157,6 +184,33 @@ export const JamView: React.FC<JamViewProps> = ({
     }));
   };
 
+  const handleMatchKey = (index: number) => {
+    const loop = storedLoops[index];
+    if (loop && loop.key) {
+      const shift = audioEngine.calculateKeyShift(loop.key, projectKey);
+      updatePadSetting(index, 'pitch', shift);
+    }
+  };
+
+  const handleGenerateSwoosh = async (index: number) => {
+    const loop = storedLoops[index];
+    if (loop) {
+      setIsProcessingEffect(true);
+      const swooshBuffer = await audioEngine.generateReverseReverb(loop.buffer);
+      // We'll just play it for now, but in a real app we'd save it
+      await audioEngine.triggerSample(swooshBuffer);
+      setIsProcessingEffect(false);
+    }
+  };
+
+  const handleExtractGroove = (index: number) => {
+    const loop = storedLoops[index];
+    if (loop) {
+      const groove = audioEngine.extractGroove(loop.buffer);
+      setGrooveMap(groove);
+    }
+  };
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
       {/* Left Column: Pad Grid */}
@@ -173,6 +227,22 @@ export const JamView: React.FC<JamViewProps> = ({
           </div>
           
           <div className="flex items-center gap-4">
+            <button 
+              onClick={toggleVoiceControl}
+              className={cn(
+                "h-16 px-6 rounded-2xl font-bold text-sm transition-all flex items-center gap-3 shadow-xl",
+                isVoiceControlActive 
+                  ? "bg-purple-600 text-white animate-pulse" 
+                  : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+              )}
+              title="Voice Controlled Studio"
+            >
+              {isVoiceControlActive ? <Mic size={20} /> : <MicOff size={20} />}
+              <div className="flex flex-col items-start">
+                <span className="text-[10px] uppercase tracking-widest leading-none mb-1">Voice Control</span>
+                <span className="text-[8px] font-mono opacity-60 leading-none">{voiceStatus || "OFFLINE"}</span>
+              </div>
+            </button>
             <div className="h-16 w-48 bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-inner">
               <canvas ref={canvasRef} width={192} height={64} className="w-full h-full" />
             </div>
@@ -260,6 +330,62 @@ export const JamView: React.FC<JamViewProps> = ({
 
       {/* Right Column: Controls & Settings */}
       <div className="lg:col-span-4 space-y-8">
+        <div className="glass-card rounded-[40px] p-8 border-indigo-200 bg-indigo-50/30 space-y-6 shadow-lg">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white">
+                <Piano size={20} />
+              </div>
+              <div>
+                <h3 className="text-lg font-serif italic text-slate-900">Chord Suggester</h3>
+                <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">AI Composition</p>
+              </div>
+            </div>
+            <button 
+              onClick={getChordSuggestions}
+              disabled={isGettingChords}
+              className={cn(
+                "p-2 rounded-lg transition-all",
+                isGettingChords ? "bg-indigo-600 text-white animate-spin" : "bg-white border border-slate-200 text-slate-400 hover:text-indigo-600"
+              )}
+            >
+              <RefreshCw size={18} />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            {(() => {
+              const seenIds = new Set();
+              return chordSuggestions.map(chord => {
+                if (seenIds.has(chord.id)) {
+                  console.warn(`Duplicate key detected in chordSuggestions: ${chord.id}`);
+                  return null;
+                }
+                seenIds.add(chord.id);
+                return (
+                  <button
+                    key={chord.id}
+                    onClick={() => playChord(chord)}
+                    className="bg-white border border-slate-200 p-4 rounded-2xl text-left hover:border-indigo-400 hover:bg-indigo-50/50 transition-all group"
+                  >
+                    <span className="text-xs font-bold text-slate-700 block mb-1">{chord.name}</span>
+                    <div className="flex gap-1">
+                      {chord.notes.slice(0, 3).map((n, i) => (
+                        <span key={i} className="text-[8px] font-mono text-slate-400">{n}</span>
+                      ))}
+                    </div>
+                  </button>
+                );
+              }).filter(Boolean);
+            })()}
+            {chordSuggestions.length === 0 && (
+              <div className="col-span-2 py-8 text-center border-2 border-dashed border-slate-200 rounded-2xl">
+                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">No suggestions yet</p>
+              </div>
+            )}
+          </div>
+        </div>
+
         <MasterControls />
 
         <AnimatePresence mode="wait">
@@ -324,6 +450,44 @@ export const JamView: React.FC<JamViewProps> = ({
                 </div>
 
                 <button 
+                  onClick={() => onEdit?.(storedLoops[selectedPad])}
+                  className="w-full py-4 rounded-2xl bg-slate-900 text-[10px] font-bold text-white hover:bg-slate-800 transition-all shadow-xl shadow-slate-900/20 flex items-center justify-center gap-3 mb-4"
+                >
+                  <Wand2 size={16} /> OPEN IN ADVANCED EDITOR
+                </button>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <button 
+                    onClick={() => handleMatchKey(selectedPad)}
+                    className="py-3 rounded-xl bg-white border border-slate-200 text-[10px] font-bold text-slate-600 hover:border-blue-400 hover:text-blue-600 transition-all"
+                  >
+                    MATCH KEY
+                  </button>
+                  <button 
+                    onClick={() => handleGenerateSwoosh(selectedPad)}
+                    disabled={isProcessingEffect}
+                    className="py-3 rounded-xl bg-white border border-slate-200 text-[10px] font-bold text-slate-600 hover:border-blue-400 hover:text-blue-600 transition-all"
+                  >
+                    {isProcessingEffect ? "GENERATING..." : "GEN SWOOSH"}
+                  </button>
+                  <button 
+                    onClick={() => handleExtractGroove(selectedPad)}
+                    className="py-3 rounded-xl bg-white border border-slate-200 text-[10px] font-bold text-slate-600 hover:border-blue-400 hover:text-blue-600 transition-all"
+                  >
+                    EXTRACT GROOVE
+                  </button>
+                  <button 
+                    disabled={!grooveMap}
+                    className={cn(
+                      "py-3 rounded-xl border text-[10px] font-bold transition-all",
+                      grooveMap ? "bg-white border-slate-200 text-slate-600 hover:border-blue-400 hover:text-blue-600" : "bg-slate-50 border-slate-100 text-slate-300 cursor-not-allowed"
+                    )}
+                  >
+                    APPLY GROOVE
+                  </button>
+                </div>
+
+                <button 
                   onClick={() => updatePadSetting(selectedPad, 'isLooping', !(padSettings[selectedPad]?.isLooping))}
                   className={cn(
                     "w-full py-4 rounded-2xl font-bold text-xs tracking-widest transition-all flex items-center justify-center gap-2 border",
@@ -334,6 +498,19 @@ export const JamView: React.FC<JamViewProps> = ({
                 >
                   <RefreshCw size={14} className={padSettings[selectedPad]?.isLooping ? "animate-spin" : ""} />
                   {padSettings[selectedPad]?.isLooping ? "LOOPING ENABLED" : "ONE-SHOT MODE"}
+                </button>
+
+                <button 
+                  onClick={() => loadToSampler(storedLoops[selectedPad])}
+                  className={cn(
+                    "w-full py-4 rounded-2xl font-bold text-xs tracking-widest transition-all flex items-center justify-center gap-2 border",
+                    activeSamplerLoop?.id === storedLoops[selectedPad].id
+                      ? "bg-blue-600 border-blue-600 text-white" 
+                      : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                  )}
+                >
+                  <Download size={14} />
+                  {activeSamplerLoop?.id === storedLoops[selectedPad].id ? "LOADED IN SAMPLER" : "LOAD TO SAMPLER"}
                 </button>
               </div>
             </motion.div>

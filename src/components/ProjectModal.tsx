@@ -174,37 +174,47 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
                       <p className="text-slate-300 text-sm italic">No saved projects yet. Start by saving your current session.</p>
                     </div>
                   ) : (
-                    projects.map(project => (
-                      <div
-                        key={project.id}
-                        onClick={() => handleLoad(project.id)}
-                        className="group p-5 rounded-3xl bg-slate-50 border border-slate-100 hover:bg-slate-100 hover:border-slate-200 transition-all cursor-pointer flex items-center justify-between"
-                      >
-                        <div className="flex items-center gap-5">
-                          <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center text-slate-300 group-hover:text-blue-500 transition-colors shadow-sm">
-                            <Music size={20} />
-                          </div>
-                          <div className="flex flex-col gap-1">
-                            <span className="text-sm font-bold text-slate-700">{project.name}</span>
-                            <div className="flex items-center gap-3 text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-                              <span className="flex items-center gap-1"><Clock size={10} /> {new Date(project.updatedAt).toLocaleDateString()}</span>
-                              <span className="flex items-center gap-1"><Activity size={10} /> {project.globalBpm} BPM</span>
+                    (() => {
+                      const seenIds = new Set();
+                      return projects.map(project => {
+                        if (seenIds.has(project.id)) {
+                          console.warn(`Duplicate key detected in projects: ${project.id}`);
+                          return null;
+                        }
+                        seenIds.add(project.id);
+                        return (
+                          <div
+                            key={project.id}
+                            onClick={() => handleLoad(project.id)}
+                            className="group p-5 rounded-3xl bg-slate-50 border border-slate-100 hover:bg-slate-100 hover:border-slate-200 transition-all cursor-pointer flex items-center justify-between"
+                          >
+                            <div className="flex items-center gap-5">
+                              <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center text-slate-300 group-hover:text-blue-500 transition-colors shadow-sm">
+                                <Music size={20} />
+                              </div>
+                              <div className="flex flex-col gap-1">
+                                <span className="text-sm font-bold text-slate-700">{project.name}</span>
+                                <div className="flex items-center gap-3 text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                                  <span className="flex items-center gap-1"><Clock size={10} /> {new Date(project.updatedAt).toLocaleDateString()}</span>
+                                  <span className="flex items-center gap-1"><Activity size={10} /> {project.globalBpm} BPM</span>
+                                </div>
+                              </div>
                             </div>
+                            <button
+                              onClick={(e) => handleDelete(e, project.id)}
+                              className={cn(
+                                "p-3 rounded-xl transition-all opacity-0 group-hover:opacity-100 flex items-center gap-2 text-xs font-bold",
+                                deleteConfirmId === project.id 
+                                  ? "bg-red-500 text-white opacity-100" 
+                                  : "text-slate-200 hover:text-red-500 hover:bg-red-50"
+                              )}
+                            >
+                              {deleteConfirmId === project.id ? "CONFIRM?" : <Trash2 size={18} />}
+                            </button>
                           </div>
-                        </div>
-                        <button
-                          onClick={(e) => handleDelete(e, project.id)}
-                          className={cn(
-                            "p-3 rounded-xl transition-all opacity-0 group-hover:opacity-100 flex items-center gap-2 text-xs font-bold",
-                            deleteConfirmId === project.id 
-                              ? "bg-red-500 text-white opacity-100" 
-                              : "text-slate-200 hover:text-red-500 hover:bg-red-50"
-                          )}
-                        >
-                          {deleteConfirmId === project.id ? "CONFIRM?" : <Trash2 size={18} />}
-                        </button>
-                      </div>
-                    ))
+                        );
+                      }).filter(Boolean);
+                    })()
                   )}
                 </div>
               </div>
